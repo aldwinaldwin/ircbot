@@ -1,0 +1,5 @@
+server=irc.freenode.org
+channel=#xxxxxxx
+botnick=xxxxxxx
+adminnames=xxxxx,yyyyyyy
+exitcode=cya bot
