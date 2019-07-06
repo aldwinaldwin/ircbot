@@ -1,27 +1,28 @@
 """ ircbot """
+import sys
+import socket
+import errno
 
 __all__ = ['Ircbot']
+
+#TODO: review socket.error exceptions
 
 class Ircbot(object):
 
     params = {}
 
-    def __init__(self):
+    def __init__(self, params):
         """ constructor """
-        import socket
-
         self.ircsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-        #TODO: get config load outside
         #load config
-        f = open('config.conf', 'r')
-        for l in f:
+        for l in params:
             p = l.strip().split('=')
             if p[0]=='adminnames': self.params[p[0]] = p[1].split(',')
             else: self.params[p[0]] = p[1]
 
         if __debug__:
-            print('debugging')
+            print('debugging mode on')
             self.l = Log('Ircbot debug')
             self.l.log(self.params)
 
@@ -30,29 +31,46 @@ class Ircbot(object):
         params = self.params
         send = self.send
 
-        #TODO: socket.timeout exception
-        ircsock.connect((self.params['server'], 6667))
+        try:
+            ircsock.connect((self.params['server'], 6667))
+        except socket.error as e:
+            if e.errno == errno.ECONNREFUSED:
+                print("can't connect to server " + params['server'])
+            return False
+
         botnick = params['botnick']
         channel = params['channel']
         botnicks = [botnick]*4
         send(' '.join(['USER', *botnicks]))
         send(' '.join(['NICK', botnick]))
         send(' '.join(['JOIN', channel]))
+
         ircmsg = ''
         #This message indicates we have successfully joined the channel.
         while ircmsg.find('End of /NAMES list.') == -1:
-            #TODO catch signal
-            ircmsg = ircsock.recv(2048).decode('utf-8').strip()
+            try:
+                ircmsg = ircsock.recv(2048).decode('utf-8').strip()
+            except socket.error as e:
+                if e.errno == errno.ECONNREFUSED:
+                    print("can't connect to server " + params['server'])
+                    exit(1)
+                elif e.errno == 4:
+                    print('exit requested')
+                    exit(0)
             if __debug__: self.l.log(ircmsg)
-            #TODO: raise exception or how check if connection is alive? reconnect?
-            if not ircmsg: exit(1)
-
 
     def send(self, cmd):
         cmd = cmd + '\n'
         if __debug__: self.l.log(cmd.strip())
-        #TODO: capture exception on fail
-        self.ircsock.send(cmd.encode('utf-8'))
+        try:
+            self.ircsock.send(cmd.encode('utf-8'))
+        except socket.error as e:
+            if e.errno == errno.ECONNREFUSED:
+                print("can't connect to server " + params['server'])
+                exit(1)
+            elif e.errno == 4:
+                print('exit requested')
+                exit(0)
 
     def privmsg(self, msg, target=None):
         if not target: target = self.params['channel']
@@ -71,11 +89,17 @@ class Ircbot(object):
         split_privmsg = self.split_privmsg
 
         while True:
-            #TODO catch signal
-            ircmsg = ircsock.recv(2048).decode('utf-8').strip()
+            try:
+                ircmsg = ircsock.recv(2048).decode('utf-8').strip()
+            except socket.error as e:
+                if e.errno == errno.ECONNREFUSED:
+                    print("can't connect to server " + params['server'])
+                    exit(1)
+                elif e.errno == 4:
+                    print('exit requested')
+                    exit(0)
             if __debug__: self.l.log(ircmsg)
 
-            #TODO: raise exception or how check if connection is alive? reconnect?
             if not ircmsg: exit(1)
 
             if ircmsg.find('PRIVMSG') != -1:
@@ -85,15 +109,13 @@ class Ircbot(object):
                 if msg.lower()=='hi ' + params['botnick']:
                     privmsg('hello '+name)
 
-                #TODO FIX ... not working
                 if name.lower() in params['adminnames']:
                     if msg==params['exitcode']:
-                        sprivmsg('bye bye '+name)
+                        privmsg('bye bye '+name)
                         send('QUIT')
 
-            #keep connection alive   TODO: pingis necessary?
             if ircmsg.find('PING :') != -1:
-                send('PONG :pingis')
+                send('PONG :YohBroh')
 
 
 class Log(object):
@@ -113,7 +135,8 @@ class Log(object):
         self.logger = logging.getLogger(name)
         self.logger.setLevel(logging.DEBUG)
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        #TODO: create dir log if not exist
+        import os
+        if not os.path.exists('./log'): os.makedirs('./log')
         handler = logging.handlers.RotatingFileHandler(
             filename='./log/'+filename, maxBytes=10485760, backupCount=10) #10485760
         handler.setFormatter(formatter)
@@ -149,9 +172,15 @@ class Log(object):
 def main():
     l = Log('ircbot')
     try:
-        bot = Ircbot()
+        f = open('config.conf', 'r')
+        bot = Ircbot(f)
+        f.close()
         bot.connect()
         bot.loopmsgs()
+    except SystemExit:
+        pass
+    except KeyboardInterrupt:
+        pass
     except:
         l.log_exception('ircbot')
 
