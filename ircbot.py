@@ -3,6 +3,7 @@ import sys
 import socket
 import errno
 import threading
+import os
 
 from time import sleep
 
@@ -12,7 +13,7 @@ __all__ = ['Ircbot']
 #TODO: study thread stopping clean
 
 class Ircthread(threading.Thread):
-
+    """ Ircthread """
     def __init__(self, ircbot, script):
         threading.Thread.__init__(self)
         self.ircbot = ircbot
@@ -26,7 +27,7 @@ class Ircthread(threading.Thread):
         privmsg('loading ' + script)
         while script in self.ircbot.threads.keys():
             try:
-                privmsg('hello world')
+                privmsg('hello world from ' + script)
                 sleep(sleep_time)
             except:
                 privmsg(script + ' crashed')
@@ -34,8 +35,9 @@ class Ircthread(threading.Thread):
                 self.ircbot.threads.pop(script)
         privmsg('unloading ' + script)
 
-class Ircbot(object):
 
+class Ircbot(object):
+    """ Ircbot """
     params = {}
     threads = {}
 
@@ -145,7 +147,9 @@ class Ircbot(object):
             self.privmsg(cmd + ' what?')
             return False
         script = msg[1]
-        #TODO: script exist in ./scripts/
+        if not os.path.isfile('./scripts/' + script + '.py'):
+            self.privmsg('script ' + script + ' not existing')
+            return False
         loaded = script in self.threads.keys()
         if cmd == 'unload' and not loaded:
             self.privmsg('script ' + script + ' not loaded')
@@ -210,7 +214,6 @@ class Log(object):
         self.logger = logging.getLogger(name)
         self.logger.setLevel(logging.DEBUG)
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        import os
         if not os.path.exists('./log'): os.makedirs('./log')
         handler = logging.handlers.RotatingFileHandler(
             filename='./log/'+filename, maxBytes=10485760, backupCount=10) #10485760
