@@ -2,14 +2,32 @@
 import sys
 import socket
 import errno
+import threading
+
+from time import sleep
 
 __all__ = ['Ircbot']
 
 #TODO: review socket.error exceptions
 
+
+class Ircthread(threading.Thread):
+
+    def __init__(self, ircbot, script):
+        threading.Thread.__init__(self)
+        self.ircbot = ircbot
+        self.script = script
+
+    def run(self):
+        while True:
+            self.ircbot.privmsg('hello world')
+            #print('hello world')
+            sleep(5)
+
 class Ircbot(object):
 
     params = {}
+    threads = {}
 
     def __init__(self, params):
         """ constructor """
@@ -111,15 +129,33 @@ class Ircbot(object):
             if ircmsg.find('PING :') != -1:
                 send('PONG :YohBroh')
 
+    def valid_script(self, script):
+        if script in self.threads.keys():
+            self.privmsg('script ' + script + ' already loaded')
+            return False
+        return True
+
     def cmds(self, name, msg):
         params = self.params
+        send = self.send
         privmsg = self.privmsg
+
+        m = msg.split()
 
         #admins
         if name.lower() in params['adminnames']:
 
+            if m[0]=='load':
+                if len(m)<2: return
+                script = m[1]
+                if self.valid_script(script):
+                    if __debug__: print('loading ' + script)
+                    t = Ircthread(self, script)
+                    self.threads[script] = t
+                    t.start()
+
             if msg==params['exitcode']:
-                privmsg('bye bye '+name)
+                privmsg('bye bye ' + name)
                 send('QUIT')
 
     def reactions(self, name, msg):
@@ -127,7 +163,7 @@ class Ircbot(object):
         privmsg = self.privmsg
 
         if msg.lower()=='hi ' + params['botnick']:
-            privmsg('hello '+name)
+            privmsg('hello ' + name)
 
 
 class Log(object):
