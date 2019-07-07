@@ -9,7 +9,7 @@ from time import sleep
 __all__ = ['Ircbot']
 
 #TODO: review socket.error exceptions
-
+#TODO: study thread stopping clean
 
 class Ircthread(threading.Thread):
 
@@ -19,10 +19,20 @@ class Ircthread(threading.Thread):
         self.script = script
 
     def run(self):
-        while True:
-            self.ircbot.privmsg('hello world')
-            #print('hello world')
-            sleep(5)
+        privmsg = self.ircbot.privmsg
+        script = self.script
+
+        sleep_time = 5
+        privmsg('loading ' + script)
+        while script in self.ircbot.threads.keys():
+            try:
+                privmsg('hello world')
+                sleep(sleep_time)
+            except:
+                privmsg(script + ' crashed')
+                if __debug__: self.ircbot.l.log_exception(script)
+                self.ircbot.threads.pop(script)
+        privmsg('unloading ' + script)
 
 class Ircbot(object):
 
@@ -76,6 +86,7 @@ class Ircbot(object):
                     print('exit requested')
                     exit(0)
             if __debug__: self.l.log(ircmsg)
+        self.privmsg("hello, i'm " + botnick)
 
     def send(self, cmd):
         cmd = cmd + '\n'
@@ -129,32 +140,48 @@ class Ircbot(object):
             if ircmsg.find('PING :') != -1:
                 send('PONG :YohBroh')
 
-    def valid_script(self, script):
-        if script in self.threads.keys():
+    def valid_script(self, msg, cmd):
+        if len(msg)<2:
+            self.privmsg(cmd + ' what?')
+            return False
+        script = msg[1]
+        #TODO: script exist in ./scripts/
+        loaded = script in self.threads.keys()
+        if cmd == 'unload' and not loaded:
+            self.privmsg('script ' + script + ' not loaded')
+            return False
+        if cmd == 'load' and loaded:
             self.privmsg('script ' + script + ' already loaded')
             return False
         return True
 
-    def cmds(self, name, msg):
+    def cmds(self, name, full_msg):
         params = self.params
         send = self.send
         privmsg = self.privmsg
 
-        m = msg.split()
+        msg = full_msg.split()
 
         #admins
         if name.lower() in params['adminnames']:
 
-            if m[0]=='load':
-                if len(m)<2: return
-                script = m[1]
-                if self.valid_script(script):
-                    if __debug__: print('loading ' + script)
+            cmd = msg[0]
+            script_cmds = ['load', 'unload']
+            if cmd in script_cmds and self.valid_script(msg, cmd):
+                script = msg[1]
+                threads = self.threads
+
+                if cmd == 'load':
                     t = Ircthread(self, script)
-                    self.threads[script] = t
+                    threads[script] = t
                     t.start()
 
-            if msg==params['exitcode']:
+                if cmd=='unload':
+                    t = threads[script]
+                    threads.pop(script)
+                    t.join()
+
+            if full_msg==params['exitcode']:
                 privmsg('bye bye ' + name)
                 send('QUIT')
 
