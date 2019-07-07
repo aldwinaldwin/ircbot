@@ -85,7 +85,6 @@ class Ircbot(object):
         ircsock = self.ircsock
         params = self.params
         send = self.send
-        privmsg = self.privmsg
         split_privmsg = self.split_privmsg
 
         while True:
@@ -106,16 +105,29 @@ class Ircbot(object):
                 name, msg = split_privmsg(ircmsg)
                 if __debug__: self.l.log(self.split_privmsg(ircmsg))
 
-                if msg.lower()=='hi ' + params['botnick']:
-                    privmsg('hello '+name)
-
-                if name.lower() in params['adminnames']:
-                    if msg==params['exitcode']:
-                        privmsg('bye bye '+name)
-                        send('QUIT')
+                if msg.startswith('.'): self.cmds(name, msg[1:])
+                else: self.reactions(name, msg)
 
             if ircmsg.find('PING :') != -1:
                 send('PONG :YohBroh')
+
+    def cmds(self, name, msg):
+        params = self.params
+        privmsg = self.privmsg
+
+        #admins
+        if name.lower() in params['adminnames']:
+
+            if msg==params['exitcode']:
+                privmsg('bye bye '+name)
+                send('QUIT')
+
+    def reactions(self, name, msg):
+        params = self.params
+        privmsg = self.privmsg
+
+        if msg.lower()=='hi ' + params['botnick']:
+            privmsg('hello '+name)
 
 
 class Log(object):
