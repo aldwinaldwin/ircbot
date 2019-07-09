@@ -1,23 +1,20 @@
 """ ircbot """
 import sys
-import socket
-import errno
-import threading
 import os
+import errno
+import signal
+import socket
+import threading
 
 from time import sleep
 
 __all__ = ['Ircbot']
 
-#TODO: review socket.error exceptions
-#TODO: study thread stopping clean
-#TODO: add signal
-
 class Ircthread(threading.Thread):
     """ Ircthread """
     def __init__(self, bot, script):
         threading.Thread.__init__(self)
-        bot.send('loading script ' + script)
+        bot.privmsg('loading script ' + script)
         self.bot = bot
         self.script = script
 
@@ -25,8 +22,9 @@ class Ircthread(threading.Thread):
         bot = self.bot
         privmsg = bot.privmsg
         script = self.script
+        threads = bot.threads
 
-        while script in bot.threads.keys():
+        while script in threads.keys() and not bot.exit:
             try:
                 #privmsg('hello world from ' + script)
                 sleep(5)
@@ -35,6 +33,7 @@ class Ircthread(threading.Thread):
                 bot.threads.pop(script)
                 if __debug__: bot.l.log_exception(script)
         privmsg('unloading script ' + script)
+        if script in threads.keys(): threads.pop(script)
 
 
 class Ircbot(object):
@@ -42,10 +41,12 @@ class Ircbot(object):
     params = {}
     threads = {}
     no_irc = False
+    exit = False
 
     def __init__(self, params):
         """ constructor """
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.settimeout(2)
 
         #load config
         for l in params:
@@ -87,6 +88,7 @@ class Ircbot(object):
         while msg.find('End of /NAMES list.') == -1 and not self.no_irc:
             try: msg = sock.recv(2048).decode('utf-8').strip()
             except socket.error as e: self.socket_error(e)
+            except socket.timeout: self.l.log('timeout')
             if __debug__: self.l.log(msg)
         self.privmsg("hello, i'm " + botnick)
 
@@ -113,8 +115,9 @@ class Ircbot(object):
         send = self.send
         split_privmsg = self.split_privmsg
 
-        while True:
+        while not self.exit:
             try: msg = sock.recv(2048).decode('utf-8').strip()
+            except socket.timeout: continue
             except socket.error as e: self.socket_error(e)
             if __debug__: self.l.log(msg)
 
@@ -128,7 +131,8 @@ class Ircbot(object):
 
             if msg.find('PING :') != -1: send('PONG :YohBroh') #staying alive
 
-    def valid_script(self, msg, cmd):
+    def valid_script(self, msg):
+        cmd = msg[0]
         if len(msg)<2:
             self.privmsg(cmd + ' what?')
             return False
@@ -145,21 +149,23 @@ class Ircbot(object):
             return False
         return True
 
-    def cmds(self, name, cmd):
+    def cmds(self, name, line):
         params = self.params
         send = self.send
         privmsg = self.privmsg
 
-        msg = cmd.split()
 
         #admins
         if not name.lower() in params['adminnames'] and not self.no_irc:
             send("you're not in the adminnames")
             return
 
+        msg = line.split()
         cmd = msg[0]
+
+        #scripts
         script_cmds = ['load', 'unload']
-        if cmd in script_cmds and self.valid_script(msg, cmd):
+        if cmd in script_cmds and self.valid_script(msg):
             script = msg[1]
             threads = self.threads
 
@@ -173,8 +179,14 @@ class Ircbot(object):
                 threads.pop(script)
                 t.join()
 
-        if cmd==params['exitcode']:
+        #exit
+        if cmd=='quit':
             privmsg('bye bye ' + name)
+            self.exit = True
+            cnt = 0
+            while self.threads and cnt<100:
+                cnt+=1
+                sleep(0.1)
             send('QUIT')
 
     def reactions(self, name, msg):
@@ -236,18 +248,26 @@ class Log(object):
 
 
 def main():
+    def signalhandler(signum, stack):
+        l.log('... exiting nicely')
+        bot.cmds('local', 'quit')
+
     l = Log('ircbot')
     try:
         f = open('config.conf', 'r')
         bot = Ircbot(f)
         f.close()
+        signal.signal(signal.SIGTERM, signalhandler)
+        signal.signal(signal.SIGINT, signalhandler)
+
         if sys.argv[1] == 'no_irc': bot.no_irc = True
         bot.connect()
         bot.loopmsgs()
-    except SystemExit:
-        pass
-    except KeyboardInterrupt:
-        pass
+        exit(0)
+    except SystemExit as e:
+        exit(e.code)
+#    except KeyboardInterrupt:
+#        pass
     except:
         l.log_exception('ircbot')
 
