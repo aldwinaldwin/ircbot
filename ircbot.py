@@ -11,39 +11,41 @@ __all__ = ['Ircbot']
 
 #TODO: review socket.error exceptions
 #TODO: study thread stopping clean
+#TODO: add signal
 
 class Ircthread(threading.Thread):
     """ Ircthread """
-    def __init__(self, ircbot, script):
+    def __init__(self, bot, script):
         threading.Thread.__init__(self)
-        self.ircbot = ircbot
+        bot.send('loading script ' + script)
+        self.bot = bot
         self.script = script
 
     def run(self):
-        privmsg = self.ircbot.privmsg
+        bot = self.bot
+        privmsg = bot.privmsg
         script = self.script
 
-        sleep_time = 5
-        privmsg('loading ' + script)
-        while script in self.ircbot.threads.keys():
+        while script in bot.threads.keys():
             try:
-                privmsg('hello world from ' + script)
-                sleep(sleep_time)
+                #privmsg('hello world from ' + script)
+                sleep(5)
             except:
                 privmsg(script + ' crashed')
-                if __debug__: self.ircbot.l.log_exception(script)
-                self.ircbot.threads.pop(script)
-        privmsg('unloading ' + script)
+                bot.threads.pop(script)
+                if __debug__: bot.l.log_exception(script)
+        privmsg('unloading script ' + script)
 
 
 class Ircbot(object):
     """ Ircbot """
     params = {}
     threads = {}
+    debug_scripts = False
 
     def __init__(self, params):
         """ constructor """
-        self.ircsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         #load config
         for l in params:
@@ -52,95 +54,79 @@ class Ircbot(object):
             else: self.params[p[0]] = p[1]
 
         if __debug__:
-            print('debugging mode on')
             self.l = Log('Ircbot debug')
+            self.l.log('debugging mode on')
             self.l.log(self.params)
 
+    def socket_error(self, e):
+        """ handle socket.error exceptions """
+        if e.errno == errno.ECONNREFUSED:
+            print("can't connect to server " + params['server'])
+        elif e.errno == errno.EINTR:
+            print('exit requested')
+            exit(0)
+        else: raise
+        exit(1)
+
     def connect(self):
-        ircsock = self.ircsock
+        """ connect to server, set params and got to channel """
+        sock = self.sock
         params = self.params
         send = self.send
 
-        try:
-            ircsock.connect((self.params['server'], 6667))
-        except socket.error as e:
-            if e.errno == errno.ECONNREFUSED:
-                print("can't connect to server " + params['server'])
-            return False
+        try: sock.connect((self.params['server'], 6667))
+        except socket.error as e: self.socket_error(e)
 
         botnick = params['botnick']
-        channel = params['channel']
-        botnicks = [botnick]*4
-        send(' '.join(['USER', *botnicks]))
+        send(' '.join(['USER', *([botnick]*4) ])) # USER botnick botnick botnick botnick
         send(' '.join(['NICK', botnick]))
-        send(' '.join(['JOIN', channel]))
+        send(' '.join(['JOIN', params['channel'] ]))
 
-        ircmsg = ''
+        msg = ''
         #This message indicates we have successfully joined the channel.
-        while ircmsg.find('End of /NAMES list.') == -1:
-            try:
-                ircmsg = ircsock.recv(2048).decode('utf-8').strip()
-            except socket.error as e:
-                if e.errno == errno.ECONNREFUSED:
-                    print("can't connect to server " + params['server'])
-                    exit(1)
-                elif e.errno == 4:
-                    print('exit requested')
-                    exit(0)
-            if __debug__: self.l.log(ircmsg)
+        while msg.find('End of /NAMES list.') == -1 and not self.debug_scripts:
+            try: msg = sock.recv(2048).decode('utf-8').strip()
+            except socket.error as e: self.socket_error(e)
+            if __debug__: self.l.log(msg)
         self.privmsg("hello, i'm " + botnick)
 
     def send(self, cmd):
+        """ send cmd through socket """
         cmd = cmd + '\n'
         if __debug__: self.l.log(cmd.strip())
-        try:
-            self.ircsock.send(cmd.encode('utf-8'))
-        except socket.error as e:
-            if e.errno == errno.ECONNREFUSED:
-                print("can't connect to server " + params['server'])
-                exit(1)
-            elif e.errno == 4:
-                print('exit requested')
-                exit(0)
+        try: self.sock.send(cmd.encode('utf-8'))
+        except socket.error as e: self.socket_error(e)
 
     def privmsg(self, msg, target=None):
         if not target: target = self.params['channel']
         self.send('PRIVMSG ' + target + ' :' + msg)
 
     def split_privmsg(self, ircmsg):
+        if self.debug_scripts: return 'debug', ircmsg
         name = ircmsg.split('!',1)[0][1:]
         msg = ircmsg.split('PRIVMSG',1)[1].split(':',1)[1]
         return name, msg
 
     def loopmsgs(self):
-        ircsock = self.ircsock
+        sock = self.sock
         params = self.params
         send = self.send
         split_privmsg = self.split_privmsg
 
         while True:
-            try:
-                ircmsg = ircsock.recv(2048).decode('utf-8').strip()
-            except socket.error as e:
-                if e.errno == errno.ECONNREFUSED:
-                    print("can't connect to server " + params['server'])
-                    exit(1)
-                elif e.errno == 4:
-                    print('exit requested')
-                    exit(0)
-            if __debug__: self.l.log(ircmsg)
+            try: msg = sock.recv(2048).decode('utf-8').strip()
+            except socket.error as e: self.socket_error(e)
+            if __debug__: self.l.log(msg)
 
-            if not ircmsg: exit(1)
+            if not msg: exit(1)
+            if msg.find('PRIVMSG') != -1 or self.debug_scripts:
+                name, cmd = split_privmsg(msg)
+                if __debug__: self.l.log(self.split_privmsg(msg))
 
-            if ircmsg.find('PRIVMSG') != -1:
-                name, msg = split_privmsg(ircmsg)
-                if __debug__: self.l.log(self.split_privmsg(ircmsg))
+                if cmd.startswith('.'): self.cmds(name, cmd[1:])
+                else: self.reactions(name, cmd)
 
-                if msg.startswith('.'): self.cmds(name, msg[1:])
-                else: self.reactions(name, msg)
-
-            if ircmsg.find('PING :') != -1:
-                send('PONG :YohBroh')
+            if msg.find('PING :') != -1: send('PONG :YohBroh') #staying alive
 
     def valid_script(self, msg, cmd):
         if len(msg)<2:
@@ -159,35 +145,37 @@ class Ircbot(object):
             return False
         return True
 
-    def cmds(self, name, full_msg):
+    def cmds(self, name, cmd):
         params = self.params
         send = self.send
         privmsg = self.privmsg
 
-        msg = full_msg.split()
+        msg = cmd.split()
 
         #admins
-        if name.lower() in params['adminnames']:
+        if not name.lower() in params['adminnames'] and not self.debug_scripts:
+            send("you're not in the adminnames")
+            return
 
-            cmd = msg[0]
-            script_cmds = ['load', 'unload']
-            if cmd in script_cmds and self.valid_script(msg, cmd):
-                script = msg[1]
-                threads = self.threads
+        cmd = msg[0]
+        script_cmds = ['load', 'unload']
+        if cmd in script_cmds and self.valid_script(msg, cmd):
+            script = msg[1]
+            threads = self.threads
 
-                if cmd == 'load':
-                    t = Ircthread(self, script)
-                    threads[script] = t
-                    t.start()
+            if cmd == 'load':
+                t = Ircthread(self, script)
+                threads[script] = t
+                t.start()
 
-                if cmd=='unload':
-                    t = threads[script]
-                    threads.pop(script)
-                    t.join()
+            if cmd=='unload':
+                t = threads[script]
+                threads.pop(script)
+                t.join()
 
-            if full_msg==params['exitcode']:
-                privmsg('bye bye ' + name)
-                send('QUIT')
+        if cmd==params['exitcode']:
+            privmsg('bye bye ' + name)
+            send('QUIT')
 
     def reactions(self, name, msg):
         params = self.params
@@ -253,6 +241,7 @@ def main():
         f = open('config.conf', 'r')
         bot = Ircbot(f)
         f.close()
+        if __debug__: bot.debug_scripts = True
         bot.connect()
         bot.loopmsgs()
     except SystemExit:
