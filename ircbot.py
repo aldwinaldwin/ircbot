@@ -41,7 +41,7 @@ class Ircbot(object):
     """ Ircbot """
     params = {}
     threads = {}
-    debug_scripts = False
+    no_irc = False
 
     def __init__(self, params):
         """ constructor """
@@ -84,7 +84,7 @@ class Ircbot(object):
 
         msg = ''
         #This message indicates we have successfully joined the channel.
-        while msg.find('End of /NAMES list.') == -1 and not self.debug_scripts:
+        while msg.find('End of /NAMES list.') == -1 and not self.no_irc:
             try: msg = sock.recv(2048).decode('utf-8').strip()
             except socket.error as e: self.socket_error(e)
             if __debug__: self.l.log(msg)
@@ -102,7 +102,7 @@ class Ircbot(object):
         self.send('PRIVMSG ' + target + ' :' + msg)
 
     def split_privmsg(self, ircmsg):
-        if self.debug_scripts: return 'debug', ircmsg
+        if self.no_irc: return 'debugger', ircmsg
         name = ircmsg.split('!',1)[0][1:]
         msg = ircmsg.split('PRIVMSG',1)[1].split(':',1)[1]
         return name, msg
@@ -119,7 +119,7 @@ class Ircbot(object):
             if __debug__: self.l.log(msg)
 
             if not msg: exit(1)
-            if msg.find('PRIVMSG') != -1 or self.debug_scripts:
+            if msg.find('PRIVMSG') != -1 or self.no_irc:
                 name, cmd = split_privmsg(msg)
                 if __debug__: self.l.log(self.split_privmsg(msg))
 
@@ -153,7 +153,7 @@ class Ircbot(object):
         msg = cmd.split()
 
         #admins
-        if not name.lower() in params['adminnames'] and not self.debug_scripts:
+        if not name.lower() in params['adminnames'] and not self.no_irc:
             send("you're not in the adminnames")
             return
 
@@ -241,7 +241,7 @@ def main():
         f = open('config.conf', 'r')
         bot = Ircbot(f)
         f.close()
-        if __debug__: bot.debug_scripts = True
+        if sys.argv[1] == 'no_irc': bot.no_irc = True
         bot.connect()
         bot.loopmsgs()
     except SystemExit:
