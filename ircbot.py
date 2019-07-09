@@ -47,11 +47,11 @@ class Ircthread(threading.Thread):
 
         while script in threads.keys() and not bot.exit:
             try:
-                if task:
-                    while len(tasks): task(tasks.pop(0))
+                while task and len(tasks): task(tasks.pop(0))
                 if prepare: mod.prepare()
-                for msg in get(): privmsg(msg)
-                sleep() if sleep else time.sleep(5)
+                if get and mod.msgs:
+                    for msg in get(): privmsg(msg)
+                sleep() if sleep else time.sleep(0.5)
             except:
                 privmsg(script + ' crashed')
                 bot.threads.pop(script)
@@ -90,6 +90,7 @@ class Ircbot(object):
         elif e.errno == errno.EINTR:
             print('exit requested')
             exit(0)
+        #TODO: BrokenPipeError: [Errno 32] Broken pipe
         else: raise
         exit(1)
 

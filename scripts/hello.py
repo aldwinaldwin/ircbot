@@ -11,8 +11,7 @@ class hello(object):
         self.msgs.append('hello')
 
     def get(self):
-        if len(self.msgs) == 0: raise StopIteration
-        yield self.msgs.pop(0)
+        while len(self.msgs): yield self.msgs.pop(0)
 
     def task(self, task):
         self.msgs.append(task)
