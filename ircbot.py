@@ -5,29 +5,53 @@ import errno
 import signal
 import socket
 import threading
+import importlib
 
-from time import sleep
+import time
 
 __all__ = ['Ircbot']
 
 class Ircthread(threading.Thread):
     """ Ircthread """
+
+    tasks = []
+
     def __init__(self, bot, script):
         threading.Thread.__init__(self)
         bot.privmsg('loading script ' + script)
         self.bot = bot
         self.script = script
 
+        try:
+            reload = False
+            if 'scripts.'+script in sys.modules.keys(): reload=True
+            self.module = importlib.import_module('scripts.'+script)
+            if reload: self.module = importlib.reload(self.module)
+            self.mod = getattr(self.module, script)()
+        except:
+            if __debug__: bot.l.log_exception(script)
+            self.mod = None
+
     def run(self):
+        mod = self.mod
+        if not mod: return
         bot = self.bot
         privmsg = bot.privmsg
         script = self.script
         threads = bot.threads
+        task = mod.task if 'task' in dir(mod) else None
+        tasks = self.tasks
+        prepare = mod.prepare if 'prepare' in dir(mod) else None
+        sleep = mod.sleep if 'sleep' in dir(mod) else None
+        get = mod.get if 'get' in dir(mod) else None
 
         while script in threads.keys() and not bot.exit:
             try:
-                #privmsg('hello world from ' + script)
-                sleep(5)
+                if task:
+                    while len(tasks): task(tasks.pop(0))
+                if prepare: mod.prepare()
+                for msg in get(): privmsg(msg)
+                sleep() if sleep else time.sleep(5)
             except:
                 privmsg(script + ' crashed')
                 bot.threads.pop(script)
@@ -62,7 +86,7 @@ class Ircbot(object):
     def socket_error(self, e):
         """ handle socket.error exceptions """
         if e.errno == errno.ECONNREFUSED:
-            print("can't connect to server " + params['server'])
+            print("can't connect to server " + self.params['server'])
         elif e.errno == errno.EINTR:
             print('exit requested')
             exit(0)
@@ -137,15 +161,9 @@ class Ircbot(object):
             self.privmsg(cmd + ' what?')
             return False
         script = msg[1]
+        if script in self.threads.keys(): return True          #already checked
         if not os.path.isfile('./scripts/' + script + '.py'):
             self.privmsg('script ' + script + ' not existing')
-            return False
-        loaded = script in self.threads.keys()
-        if cmd == 'unload' and not loaded:
-            self.privmsg('script ' + script + ' not loaded')
-            return False
-        if cmd == 'load' and loaded:
-            self.privmsg('script ' + script + ' already loaded')
             return False
         return True
 
@@ -153,7 +171,6 @@ class Ircbot(object):
         params = self.params
         send = self.send
         privmsg = self.privmsg
-
 
         #admins
         if not name.lower() in params['adminnames'] and not self.no_irc:
@@ -164,20 +181,27 @@ class Ircbot(object):
         cmd = msg[0]
 
         #scripts
-        script_cmds = ['load', 'unload']
+        script_cmds = ['load', 'unload', 'tell']
         if cmd in script_cmds and self.valid_script(msg):
             script = msg[1]
             threads = self.threads
+            task = ' '.join(msg[2:]) if len(msg)>2 else ''
 
-            if cmd == 'load':
-                t = Ircthread(self, script)
-                threads[script] = t
-                t.start()
+            loaded = (script in threads.keys())
+
+            if cmd=='load':
+                if not loaded:
+                    threads[script] = Ircthread(self, script)
+                    threads[script].start()
+                else: privmsg('script ' + script + ' already loaded')
 
             if cmd=='unload':
-                t = threads[script]
-                threads.pop(script)
-                t.join()
+                if loaded: threads.pop(script)
+                else: privmsg('script ' + script + ' not loaded')
+
+            if cmd=='tell':
+                if loaded: threads[script].tasks.append(task)
+                else: privmsg('script ' + script + ' not loaded')
 
         #exit
         if cmd=='quit':
@@ -186,7 +210,7 @@ class Ircbot(object):
             cnt = 0
             while self.threads and cnt<100:
                 cnt+=1
-                sleep(0.1)
+                time.sleep(0.1)
             send('QUIT')
 
     def reactions(self, name, msg):
@@ -248,11 +272,13 @@ class Log(object):
 
 
 def main():
+    """ main """
+    l = Log('ircbot')
+
     def signalhandler(signum, stack):
         l.log('... exiting nicely')
         bot.cmds('local', 'quit')
 
-    l = Log('ircbot')
     try:
         f = open('config.conf', 'r')
         bot = Ircbot(f)
