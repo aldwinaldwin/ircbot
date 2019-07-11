@@ -50,22 +50,20 @@ class scmp(object):
             self.msgs_left()
 
     def msgs_left(self):
-        l = len(self.feeds)
-        if l:
-            self.notified_amount = l
-            self.msgs.append('SCMP messages left: '+str(l))
+        self.notified_amount = l
+        self.msgs.append('SCMP messages left: '+str(l))
 
     def get_feeds(self):
+        #TODO: limit max amount in feeds
         amount = self.notified_amount
         NewsFeed = feedparser.parse(url)
 
-        NewFeed = sorted(NewsFeed['entries'], key=lambda k: k['published_parsed'], reverse=True)
+        NewFeed = sorted(NewsFeed['entries'], key=lambda k: k['published_parsed'])
         feeds = []
         for entry in NewFeed:
-            if self.lastpublished == (entry.published_parsed, entry.title[:20]): break
+            if self.lastpublished and not self.lastpublished < entry.published_parsed: continue
             feeds.append(entry)
         if feeds:
-            feeds = sorted(feeds, key=lambda k: k['published_parsed'])
-            self.lastpublished = (feeds[-1:][0]['published_parsed'], feeds[-1:][0]['title'][:20])
+            self.lastpublished = feeds[-1:][0]['published_parsed']
             self.feeds+=feeds
-            if len(self.feeds) + 10 > amount: self.msgs_left()
+            if len(self.feeds) > amount + 9: self.msgs_left()
