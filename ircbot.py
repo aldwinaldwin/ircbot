@@ -72,7 +72,6 @@ class Ircbot(object):
     def __init__(self, params):
         """ constructor """
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.settimeout(2)
 
         #load config
         for l in params:
@@ -141,6 +140,8 @@ class Ircbot(object):
         params = self.params
         send = self.send
         split_privmsg = self.split_privmsg
+
+        self.sock.settimeout(2)
 
         while not self.exit:
             try: msg = sock.recv(2048).decode('utf-8').strip()
@@ -302,7 +303,7 @@ def main():
         signal.signal(signal.SIGTERM, signalhandler)
         signal.signal(signal.SIGINT, signalhandler)
 
-        if sys.argv[1] == 'no_irc': bot.no_irc = True
+        if len(sys.argv)>1 and sys.argv[1] == 'no_irc': bot.no_irc = True
         bot.connect()
         bot.loopmsgs()
         exit(0)
