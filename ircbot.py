@@ -66,6 +66,8 @@ class Ircbot(object):
     threads = {}
     no_irc = False
     exit = False
+    log = False
+    msg_log = None
 
     def __init__(self, params):
         """ constructor """
@@ -145,7 +147,7 @@ class Ircbot(object):
             except socket.timeout: continue
             except socket.error as e: self.socket_error(e)
             if __debug__: self.l.log(msg)
-
+            if self.log: self.msg_log.log(msg)
             if not msg: exit(1)
             if msg.find('PRIVMSG') != -1 or self.no_irc:
                 name, cmd = split_privmsg(msg)
@@ -214,6 +216,23 @@ class Ircbot(object):
                 time.sleep(0.1)
             send('QUIT')
 
+        if cmd=='log':
+            if len(msg)<2:
+                self.privmsg(cmd + ' what?')
+            elif msg[1]=='on' and not self.log:
+                self.log = True
+                if not self.msg_log:
+                    self.msg_log = Log('Ircbot messages', filename='messages.log')
+                self.privmsg(cmd + ' switched on')
+            elif msg[1]=='on' and self.log:
+                self.privmsg(cmd + ' already on')
+            elif msg[1]=='off' and self.log:
+                self.log = False
+                self.privmsg(cmd + ' switched off')
+            elif msg[1]=='off' and not self.log:
+                self.privmsg(cmd + ' already off')
+            else: self.privmsg(cmd + ' on/off?')
+
     def reactions(self, name, msg):
         params = self.params
         privmsg = self.privmsg
@@ -226,12 +245,8 @@ class Log(object):
     """ log features """
     logger = None
 
-    def __init__(self, name):
+    def __init__(self, name, filename='exceptions.log'):
         """ constructor """
-        self.set_env(name)
-
-    def set_env(self, name, filename='exceptions.log'):
-        """ set logfile parameters """
         import logging
         import logging.handlers
 
